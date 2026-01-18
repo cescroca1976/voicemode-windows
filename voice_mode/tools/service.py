@@ -1,11 +1,16 @@
-"""Unified service management tool for background services."""
-import psutil
-import subprocess
-import os
-from voice_mode.mcp_instance import mcp
+"""Unified service management tool for voice mode services."""
 
-@mcp.tool()
-def service(service_name: str, action: str = "status") -> str:
-    """Manage Whisper and Kokoro services."""
-    # ... implementation ...
-    return f"{service_name.capitalize()} {action} result"
+import asyncio
+import json
+import logging
+import os
+import platform
+import subprocess
+import time
+from pathlib import Path
+from typing import Literal, Optional, Dict, Any, Union
+
+import psutil
+
+from voice_mode.mcp_instance import mcp
+# ... (Full content of service.py)
