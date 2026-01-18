@@ -1,0 +1,4 @@
+[project]
+name = "voice-mode"
+version = "7.4.2"
+dependencies = ["fastmcp", "numpy", "sounddevice", "openai"]
