@@ -1,0 +1,139 @@
+# Voice Mode Dependencies
+# 
+# This file centralizes all system and library dependencies for Voice Mode.
+# It is used by the installer and diagnostic tools to ensure the environment
+# is correctly set up.
+#
+# Structure:
+#   components:
+#     - core: Basic audio and networking
+#     - whisper: Local speech-to-text
+#     - kokoro: Local text-to-speech
+#   platforms:
+#     - linux:
+#         - debian/ubuntu: apt packages
+#         - arch: pacman packages
+#     - macOS: brew packages
+#     - windows: winget/manual instructions
+
+version: 1.0.0
+
+components:
+  core:
+    description: "Core Voice Mode functionality (Audio IO, OpenAI API)"
+    linux:
+      debian:
+        packages:
+          - "libportaudio2"         # Essential for sounddevice
+          - "libasound2-dev"        # ALSA headers
+          - "ffmpeg"                # Audio format conversion
+          - "pulseaudio-utils"      # PulseAudio tools (pactl)
+          - "libpulse0"             # PulseAudio library
+        checks:
+          - command: "ffmpeg -version"
+          - command: "pactl --version"
+      arch:
+        packages:
+          - "portaudio"
+          - "ffmpeg"
+          - "pulseaudio"
+    macos:
+      brew:
+        packages:
+          - "portaudio"
+          - "ffmpeg"
+    windows:
+      manual:
+        - "Install Python 3.10+ and add to PATH"
+        - "PortAudio is bundled with sounddevice wheel"
+        - "FFmpeg should be installed via winget or manually added to PATH"
+
+  whisper:
+    description: "Local Whisper STT (whisper.cpp)"
+    linux:
+      debian:
+        packages:
+          - "build-essential"       # GCC, Make
+          - "cmake"                 # Build system
+          - "git"                   # Cloning whisper.cpp
+          - "libsdl2-dev"           # Optional but recommended for audio
+        checks:
+          - command: "gcc --version"
+          - command: "cmake --version"
+      arch:
+        packages:
+          - "base-devel"
+          - "cmake"
+          - "git"
+    macos:
+      brew:
+        packages:
+          - "cmake"
+          - "git"
+          - "sdl2"
+    windows:
+      manual:
+        - "Visual Studio Build Tools (C++)"
+        - "CMake"
+        - "Git for Windows"
+
+  kokoro:
+    description: "Local Kokoro TTS (kokoro-fastapi)"
+    linux:
+      debian:
+        packages:
+          - "python3-venv"          # Virtual environment support
+          - "python3-pip"           # Package management
+          - "espeak-ng"             # Optional phonemizer support
+        checks:
+          - command: "espeak-ng --version"
+      arch:
+        packages:
+          - "python"
+          - "espeak-ng"
+    macos:
+      brew:
+        packages:
+          - "espeak-ng"
+    windows:
+      manual:
+        - "Python 3.10+ venv"
+
+# Python library dependencies (managed via uv/pip)
+# Included here for diagnostic comparison
+python_libraries:
+  core:
+    - "sounddevice"      # Audio I/O
+    - "numpy"            # Signal processing
+    - "scipy"            # Audio format handling
+    - "openai"           # API client
+    - "httpx"            # Networking
+    - "click"            # CLI framework
+    - "python-dotenv"    # Configuration
+    - "pydantic"         # Data validation
+    - "rich"             # Terminal UI
+    - "webrtcvad"        # Voice Activity Detection
+  whisper:
+    - "requests"         # Model downloading
+    - "tqdm"             # Progress bars
+  kokoro:
+    - "uvicorn"          # HTTP server
+    - "fastapi"          # API framework
+
+# Troubleshooting guide for common platform-specific issues
+troubleshooting:
+  wsl:
+    - title: "Audio device not found in WSL"
+      description: "WSL does not natively support audio hardware. You must use PulseAudio or WSLg."
+      fix: "Ensure PulseAudio is running on Windows and WSL is configured to use it (DISPLAY=:0 and PULSE_SERVER=tcp:127.0.0.1)."
+    - title: "PulseAudio connection refused"
+      description: "WSL can't connect to the PulseAudio server on Windows."
+      fix: "Check that the PulseAudio server is configured to allow connections from localhost and that Windows Firewall isn't blocking port 4713."
+  macos:
+    - title: "Microphone permission denied"
+      description: "macOS requires explicit permission for terminal applications to access the microphone."
+      fix: "Go to System Settings > Privacy & Security > Microphone and ensure your terminal/IDE is checked."
+  linux:
+    - title: "PortAudio connection failed"
+      description: "User may not have permission to access audio devices."
+      fix: "Add your user to the 'audio' group: sudo usermod -aG audio $USER"
