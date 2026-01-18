@@ -1,208 +1,169 @@
-# VoiceMode
+# Voice-Mode MCP Server - Windows 11 Edition
 
-> Talk to Claude Code when typing isn't an option.
+🎤 **Servidor MCP de mode de veu per a Antigravity amb suport complet per Windows 11**
 
-[![PyPI Downloads](https://static.pepy.tech/badge/voice-mode)](https://pepy.tech/project/voice-mode)
-[![PyPI Downloads](https://static.pepy.tech/badge/voice-mode/month)](https://pepy.tech/project/voice-mode)
-[![PyPI Downloads](https://static.pepy.tech/badge/voice-mode/week)](https://pepy.tech/project/voice-mode)
+Aquest és un fork modificat de [mbailey/voicemode](https://github.com/mbailey/voicemode) amb correccions específiques per a Windows 11.
 
-VoiceMode enables natural voice conversations with Claude Code. Voice isn't about replacing typing - it's about being available when typing isn't.
+## ✨ Característiques
 
-**Perfect for:**
+- ✅ **Compatible amb Windows 11** - Totes les dependències funcionen sense compilació
+- ✅ **Instal·lació automàtica** - Script PowerShell que ho configura tot
+- ✅ **Python 3.12** - Versió estable amb suport complet
+- ✅ **FFmpeg integrat** - Instal·lació automàtica via Chocolatey
+- ✅ **Singleton pattern** - Evita problemes de doble-importació
+- ✅ **Integració Antigravity** - Configuració automàtica
 
-- Walking to your next meeting
-- Cooking while debugging
-- Giving your eyes a break after hours of screen time
-- Holding a coffee (or a dog)
-- Any moment when your hands or eyes are busy
+## 🚀 Instal·lació Ràpida
 
-## See It In Action
+### Prerequisits
 
-[![VoiceMode Demo](https://img.youtube.com/vi/cYdwOD_-dQc/maxresdefault.jpg)](https://www.youtube.com/watch?v=cYdwOD_-dQc)
+- Windows 11
+- [Chocolatey](https://chocolatey.org/install) (per FFmpeg)
+- [uv](https://github.com/astral-sh/uv) (gestor de paquets Python)
+- Clau API d'OpenAI
 
-## Quick Start
+### Pas 1: Clonar el Repositori
 
-**Requirements:** Computer with microphone and speakers
-
-### Option 1: Claude Code Plugin (Recommended)
-
-The fastest way to get started:
-
-```bash
-# Add the plugin marketplace
-claude plugin marketplace add https://github.com/mbailey/claude-plugins
-
-# Install VoiceMode plugin
-claude plugin install voicemode@mbailey
-
-## Install dependencies (CLI, Local Voice Services)
-
-/voicemode:install
-
-# Start talking!
-/voicemode:converse
+```powershell
+cd C:\Users\$env:USERNAME
+git clone https://github.com/TU_USUARIO/voicemode-windows.git
+cd voicemode-windows
 ```
 
-The plugin handles everything - just install and go.
+### Pas 2: Configurar API Key
 
-### Option 2: MCP Server
+Edita el fitxer `config.env` i afegeix la teva clau API d'OpenAI:
 
-Add VoiceMode as an MCP server for more control:
-
-```bash
-# Install UV package manager (if needed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Run the installer (sets up dependencies and local voice services)
-uvx voice-mode-install
-
-# Add to Claude Code
-claude mcp add --scope user voicemode -- uvx --refresh voice-mode
-
-# Optional: Add OpenAI API key as fallback for local services
-export OPENAI_API_KEY=your-openai-key
-
-# Start a conversation
-claude converse
+```env
+OPENAI_API_KEY=sk-proj-XXXXXXXXXXXXX
 ```
 
-For manual setup, see the [Getting Started Guide](docs/tutorials/getting-started.md).
+### Pas 3: Executar l'Instal·lador
 
-## Features
-
-- **Natural conversations** - speak naturally, hear responses immediately
-- **Works offline** - optional local voice services (Whisper STT, Kokoro TTS)
-- **Low latency** - fast enough to feel like a real conversation
-- **Smart silence detection** - stops recording when you stop speaking
-- **Privacy options** - run entirely locally or use cloud services
-
-## Compatibility
-
-**Platforms:** Linux, macOS, Windows (WSL), NixOS
-**Python:** 3.10-3.14
-
-## Configuration
-
-VoiceMode works out of the box. For customization:
-
-```bash
-# Set OpenAI API key (if using cloud services)
-export OPENAI_API_KEY="your-key"
-
-# Or configure via file
-voicemode config edit
+```powershell
+.\install.ps1
 ```
 
-See the [Configuration Guide](docs/guides/configuration.md) for all options.
+Aquest script farà:
+1. ✅ Instal·lar Python 3.12
+2. ✅ Instal·lar FFmpeg
+3. ✅ Crear entorn virtual
+4. ✅ Instal·lar dependències
+5. ✅ Configurar Antigravity
+6. ✅ Verificar la instal·lació
 
-## Local Voice Services
+### Pas 4: Reiniciar Antigravity
 
-For privacy or offline use, install local speech services:
+Tanca i torna a obrir Antigravity. El servidor `voicemode` hauria d'aparèixer en **verd** amb les eines:
+- `converse` - Conversa per veu
+- `service` - Gestió de serveis
+- `internal_list_tools` - Llista d'eines
 
-- **[Whisper.cpp](docs/guides/whisper-setup.md)** - Local speech-to-text
-- **[Kokoro](docs/guides/kokoro-setup.md)** - Local text-to-speech with multiple voices
+## 🎯 Ús
 
-These provide the same API as OpenAI, so VoiceMode switches seamlessly between them.
+### Activar Mode de Veu
 
-## Installation Details
-
-<details>
-<summary><strong>System Dependencies by Platform</strong></summary>
-
-#### Ubuntu/Debian
-
-```bash
-sudo apt update
-sudo apt install -y ffmpeg gcc libasound2-dev libasound2-plugins libportaudio2 portaudio19-dev pulseaudio pulseaudio-utils python3-dev
+A Antigravity, simplement diu:
+```
+Activa el mode de veu
 ```
 
-**WSL2 users**: The pulseaudio packages above are required for microphone access.
-
-#### Fedora/RHEL
-
-```bash
-sudo dnf install alsa-lib-devel ffmpeg gcc portaudio portaudio-devel python3-devel
+O utilitza directament l'eina `converse`:
+```
+Utilitza l'eina converse per escoltar-me
 ```
 
-#### macOS
+### Configuració Avançada
 
-```bash
-brew install ffmpeg node portaudio
+Edita `C:\Users\TU_USUARIO\.gemini\antigravity\mcp_config.json` per personalitzar:
+
+```json
+{
+  "mcpServers": {
+    "voicemode": {
+      "env": {
+        "VOICEMODE_DEBUG": "true",
+        "VOICEMODE_DISABLE_SILENCE_DETECTION": "true",
+        "VOICEMODE_DEFAULT_LISTEN_DURATION": "10.0",
+        "VOICEMODE_AUDIO_FEEDBACK": "true"
+      }
+    }
+  }
+}
 ```
 
-#### NixOS
+## 🔧 Modificacions Respecte a l'Original
 
-```bash
-# Use development shell
-nix develop github:mbailey/voicemode
+### Dependències Actualitzades
+- `simpleaudio` → `simpleaudio-patched` (wheels per Windows)
+- `webrtcvad` → `webrtcvad-wheels` (wheels per Windows)
 
-# Or install system-wide
-nix profile install github:mbailey/voicemode
+### Codi Modificat
+- **Singleton MCP** (`mcp_instance.py`) - Evita doble-importació
+- **Windows compatibility** - `fcntl` i `resource` opcionals
+- **Imports actualitzats** - Tots els mòduls usen el singleton
+
+### Fitxers Nous
+- `install.ps1` - Script d'instal·lació automàtic
+- `verify.ps1` - Script de verificació
+- `config.env` - Plantilla de configuració
+- `mcp_config.template.json` - Plantilla per Antigravity
+
+## 📚 Documentació
+
+- [Guia d'Instal·lació Completa](docs/INSTALLATION.md)
+- [Configuració](docs/CONFIGURATION.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Arquitectura](docs/ARCHITECTURE.md)
+
+## 🐛 Problemes Comuns
+
+### El servidor surt en vermell
+```powershell
+# Verificar instal·lació
+.\verify.ps1
+
+# Reinstal·lar
+.\install.ps1 -Force
 ```
 
-</details>
+### No sento el chime
+Comprova que `VOICEMODE_AUDIO_FEEDBACK` està a `true` a la configuració.
 
-<details>
-<summary><strong>Alternative Installation Methods</strong></summary>
-
-#### From source
-
-```bash
-git clone https://github.com/mbailey/voicemode.git
-cd voicemode
-uv tool install -e .
+### Error "No module named..."
+```powershell
+# Reinstal·lar dependències
+cd voicemode-windows
+.\.venv\Scripts\python.exe -m pip install -e .
 ```
 
-#### NixOS system-wide
+## 🤝 Contribucions
 
-```nix
-# In /etc/nixos/configuration.nix
-environment.systemPackages = [
-  (builtins.getFlake "github:mbailey/voicemode").packages.${pkgs.system}.default
-];
-```
+Aquest és un fork amb modificacions específiques per Windows. Per contribuir:
 
-</details>
+1. Fork aquest repositori
+2. Crea una branca (`git checkout -b feature/millora`)
+3. Commit els canvis (`git commit -am 'Afegeix millora'`)
+4. Push a la branca (`git push origin feature/millora`)
+5. Obre un Pull Request
 
-## Troubleshooting
+## 📝 Llicència
 
+Mateix que l'original: [Llicència del projecte original](https://github.com/mbailey/voicemode)
 
-| Problem | Solution |
-|---------|----------|
-| No microphone access | Check terminal/app permissions. WSL2 needs pulseaudio packages. |
-| UV not found | Run `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| OpenAI API error | Verify `OPENAI_API_KEY` is set correctly |
-| No audio output | Check system audio settings and available devices |
+## 🙏 Agraïments
 
+- [mbailey/voicemode](https://github.com/mbailey/voicemode) - Projecte original
+- Comunitat d'Antigravity
+- Tots els contribuïdors
 
-### Save Audio for Debugging
+## 📞 Suport
 
-```bash
-export VOICEMODE_SAVE_AUDIO=true
-# Files saved to ~/.voicemode/audio/YYYY/MM/
-```
-
-## Documentation
-
-- [Getting Started](docs/tutorials/getting-started.md) - Full setup guide
-- [Configuration](docs/guides/configuration.md) - All environment variables
-- [Whisper Setup](docs/guides/whisper-setup.md) - Local speech-to-text
-- [Kokoro Setup](docs/guides/kokoro-setup.md) - Local text-to-speech
-- [Development Setup](docs/tutorials/development-setup.md) - Contributing guide
-
-Full documentation: [voice-mode.readthedocs.io](https://voice-mode.readthedocs.io)
-
-## Links
-
-- **Website**: [getvoicemode.com](https://getvoicemode.com)
-- **GitHub**: [github.com/mbailey/voicemode](https://github.com/mbailey/voicemode)
-- **PyPI**: [pypi.org/project/voice-mode](https://pypi.org/project/voice-mode/)
-- **YouTube**: [@getvoicemode](https://youtube.com/@getvoicemode)
-- **Twitter/X**: [@getvoicemode](https://twitter.com/getvoicemode)
-
-## License
-
-MIT - A [Failmode](https://failmode.com) Project
+Si tens problemes:
+1. Revisa la [documentació](docs/)
+2. Comprova els [problemes comuns](#-problemes-comuns)
+3. Obre un [issue](https://github.com/TU_USUARIO/voicemode-windows/issues)
 
 ---
-mcp-name: com.failmode/voicemode
+
+**Fet amb ❤️ per a la comunitat d'Antigravity**
