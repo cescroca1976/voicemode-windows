@@ -1,81 +1,81 @@
 # Voice-Mode MCP Server - Windows 11 Edition
 
-🎤 **Servidor MCP de mode de veu per a Antigravity amb suport complet per Windows 11**
+🎤 **Voice Mode MCP Server for Antigravity with full Windows 11 support**
 
-Aquest és un fork modificat de [mbailey/voicemode](https://github.com/mbailey/voicemode) amb correccions específiques per a Windows 11.
+This is a modified fork of [mbailey/voicemode](https://github.com/mbailey/voicemode) with specific fixes for Windows 11.
 
-## ✨ Característiques
+## ✨ Features
 
-- ✅ **Compatible amb Windows 11** - Totes les dependències funcionen sense compilació
-- ✅ **Instal·lació automàtica** - Script PowerShell que ho configura tot
-- ✅ **Python 3.12** - Versió estable amb suport complet
-- ✅ **FFmpeg integrat** - Instal·lació automàtica via Chocolatey
-- ✅ **Singleton pattern** - Evita problemes de doble-importació
-- ✅ **Integració Antigravity** - Configuració automàtica
+- ✅ **Windows 11 Compatible** - All dependencies work without compilation issues
+- ✅ **Automatic Installation** - PowerShell script that configures everything
+- ✅ **Python 3.12** - Stable version with full support
+- ✅ **Integrated FFmpeg** - Automatic installation via Chocolatey
+- ✅ **Singleton Pattern** - Avoids double-import issues
+- ✅ **Antigravity Integration** - Automatic configuration
 
-## 🚀 Instal·lació Ràpida
+## 🚀 Quick Installation
 
-### Prerequisits
+### Prerequisites
 
 - Windows 11
-- [Chocolatey](https://chocolatey.org/install) (per FFmpeg)
-- [uv](https://github.com/astral-sh/uv) (gestor de paquets Python)
-- Clau API d'OpenAI
+- [Chocolatey](https://chocolatey.org/install) (for FFmpeg)
+- [uv](https://github.com/astral-sh/uv) (Python package manager)
+- OpenAI API Key
 
-### Pas 1: Clonar el Repositori
+### Step 1: Clone the Repository
 
 ```powershell
 cd C:\Users\$env:USERNAME
-git clone https://github.com/TU_USUARIO/voicemode-windows.git
+git clone https://github.com/cescroca1976/voicemode-windows.git
 cd voicemode-windows
 ```
 
-### Pas 2: Configurar API Key
+### Step 2: Configure API Key
 
-Edita el fitxer `config.env` i afegeix la teva clau API d'OpenAI:
+Edit the `config.env` file and add your OpenAI API key:
 
 ```env
 OPENAI_API_KEY=sk-proj-XXXXXXXXXXXXX
 ```
 
-### Pas 3: Executar l'Instal·lador
+### Step 3: Run the Installer
 
 ```powershell
 .\install.ps1
 ```
 
-Aquest script farà:
-1. ✅ Instal·lar Python 3.12
-2. ✅ Instal·lar FFmpeg
-3. ✅ Crear entorn virtual
-4. ✅ Instal·lar dependències
-5. ✅ Configurar Antigravity
-6. ✅ Verificar la instal·lació
+This script will:
+1. ✅ Install Python 3.12
+2. ✅ Install FFmpeg
+3. ✅ Create a virtual environment
+4. ✅ Install dependencies
+5. ✅ Configure Antigravity
+6. ✅ Verify the installation
 
-### Pas 4: Reiniciar Antigravity
+### Step 4: Restart Antigravity
 
-Tanca i torna a obrir Antigravity. El servidor `voicemode` hauria d'aparèixer en **verd** amb les eines:
-- `converse` - Conversa per veu
-- `service` - Gestió de serveis
-- `internal_list_tools` - Llista d'eines
+Close and reopen Antigravity. The `voicemode` server should appear in **green** with the following tools:
+- `converse` - Voice conversation
+- `service` - Service management
+- `internal_list_tools` - Tool list
 
-## 🎯 Ús
+## 🎯 Usage
 
-### Activar Mode de Veu
+### Activate Voice Mode
 
-A Antigravity, simplement diu:
+In Antigravity, simply say:
 ```
-Activa el mode de veu
-```
-
-O utilitza directament l'eina `converse`:
-```
-Utilitza l'eina converse per escoltar-me
+Activate voice mode
 ```
 
-### Configuració Avançada
+Or use the `converse` tool directly:
+```
+Use the converse tool to listen to me
+```
 
-Edita `C:\Users\TU_USUARIO\.gemini\antigravity\mcp_config.json` per personalitzar:
+### Advanced Configuration
+
+Edit `C:\Users\%USERNAME%\.gemini\antigravity\mcp_config.json` to customize:
 
 ```json
 {
@@ -92,78 +92,78 @@ Edita `C:\Users\TU_USUARIO\.gemini\antigravity\mcp_config.json` per personalitza
 }
 ```
 
-## 🔧 Modificacions Respecte a l'Original
+## 🔧 Modifications from Original
 
-### Dependències Actualitzades
-- `simpleaudio` → `simpleaudio-patched` (wheels per Windows)
-- `webrtcvad` → `webrtcvad-wheels` (wheels per Windows)
+### Updated Dependencies
+- `simpleaudio` → `simpleaudio-patched` (Windows wheels)
+- `webrtcvad` → `webrtcvad-wheels` (Windows wheels)
 
-### Codi Modificat
-- **Singleton MCP** (`mcp_instance.py`) - Evita doble-importació
-- **Windows compatibility** - `fcntl` i `resource` opcionals
-- **Imports actualitzats** - Tots els mòduls usen el singleton
+### Modified Code
+- **Singleton MCP** (`mcp_instance.py`) - Avoids double-importing
+- **Windows Compatibility** - `fcntl` and `resource` made optional
+- **Updated Imports** - All modules use the singleton instance
 
-### Fitxers Nous
-- `install.ps1` - Script d'instal·lació automàtic
-- `verify.ps1` - Script de verificació
-- `config.env` - Plantilla de configuració
-- `mcp_config.template.json` - Plantilla per Antigravity
+### New Files
+- `install.ps1` - Automatic installation script
+- `verify.ps1` - Verification script
+- `config.env` - Configuration template
+- `mcp_config.template.json` - Antigravity template
 
-## 📚 Documentació
+## 📚 Documentation
 
-- [Guia d'Instal·lació Completa](docs/INSTALLATION.md)
-- [Configuració](docs/CONFIGURATION.md)
+- [Full Installation Guide](docs/INSTALLATION.md)
+- [Configuration](docs/CONFIGURATION.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Arquitectura](docs/ARCHITECTURE.md)
+- [Architecture](docs/ARCHITECTURE.md)
 
-## 🐛 Problemes Comuns
+## 🐛 Common Issues
 
-### El servidor surt en vermell
+### Server shows as red
 ```powershell
-# Verificar instal·lació
+# Verify installation
 .\verify.ps1
 
-# Reinstal·lar
+# Reinstall
 .\install.ps1 -Force
 ```
 
-### No sento el chime
-Comprova que `VOICEMODE_AUDIO_FEEDBACK` està a `true` a la configuració.
+### I can't hear the chime
+Check that `VOICEMODE_AUDIO_FEEDBACK` is set to `true` in the configuration.
 
 ### Error "No module named..."
 ```powershell
-# Reinstal·lar dependències
+# Reinstall dependencies
 cd voicemode-windows
 .\.venv\Scripts\python.exe -m pip install -e .
 ```
 
-## 🤝 Contribucions
+## 🤝 Contributions
 
-Aquest és un fork amb modificacions específiques per Windows. Per contribuir:
+This is a fork with Windows-specific modifications. To contribute:
 
-1. Fork aquest repositori
-2. Crea una branca (`git checkout -b feature/millora`)
-3. Commit els canvis (`git commit -am 'Afegeix millora'`)
-4. Push a la branca (`git push origin feature/millora`)
-5. Obre un Pull Request
+1. Fork this repository
+2. Create a branch (`git checkout -b feature/improvement`)
+3. Commit your changes (`git commit -am 'Add improvement'`)
+4. Push to the branch (`git push origin feature/improvement`)
+5. Open a Pull Request
 
-## 📝 Llicència
+## 📝 License
 
-Mateix que l'original: [Llicència del projecte original](https://github.com/mbailey/voicemode)
+Same as the original: [Original project license](https://github.com/mbailey/voicemode)
 
-## 🙏 Agraïments
+## 🙏 Acknowledgements
 
-- [mbailey/voicemode](https://github.com/mbailey/voicemode) - Projecte original
-- Comunitat d'Antigravity
-- Tots els contribuïdors
+- [mbailey/voicemode](https://github.com/mbailey/voicemode) - Original project
+- Antigravity community
+- All contributors
 
-## 📞 Suport
+## 📞 Support
 
-Si tens problemes:
-1. Revisa la [documentació](docs/)
-2. Comprova els [problemes comuns](#-problemes-comuns)
-3. Obre un [issue](https://github.com/TU_USUARIO/voicemode-windows/issues)
+If you have issues:
+1. Review the [documentation](docs/)
+2. Check [common issues](#-common-issues)
+3. Open an [issue](https://github.com/cescroca1976/voicemode-windows/issues)
 
 ---
 
-**Fet amb ❤️ per a la comunitat d'Antigravity**
+**Made with ❤️ for the Antigravity community**
