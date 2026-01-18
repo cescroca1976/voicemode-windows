@@ -532,6 +532,8 @@ async def text_to_speech(
                 logger.error("   For local-only usage, ensure Kokoro is running and configured.")
 
         # Re-raise API errors so simple_tts_failover can parse them properly
+        # This allows proper error messages to be shown to users
+        # We'll only return False for local playback errors
         if hasattr(e, 'response') or 'Error code:' in str(e) or isinstance(e, Exception) and not error_message.startswith('error playing audio'):
             raise
 
@@ -545,47 +547,80 @@ def generate_chime(
     leading_silence: Optional[float] = None,
     trailing_silence: Optional[float] = None
 ) -> np.ndarray:
-    """Generate a chime sound with given frequencies."""
+    """Generate a chime sound with given frequencies.
+    
+    Args:
+        frequencies: List of frequencies to play in sequence
+        duration: Duration of each tone in seconds
+        sample_rate: Sample rate for audio generation
+        leading_silence: Optional override for leading silence duration (seconds)
+        trailing_silence: Optional override for trailing silence duration (seconds)
+        
+    Returns:
+        Numpy array of audio samples
+    """
     samples_per_tone = int(sample_rate * duration)
     fade_samples = int(sample_rate * 0.01)  # 10ms fade
     
     # Determine amplitude based on output device
-    amplitude = 0.0375  # Default
+    amplitude = 0.0375  # Default (very quiet)
     try:
         import sounddevice as sd
         default_output = sd.default.device[1]
         if default_output is not None:
             devices = sd.query_devices()
             device_name = devices[default_output]['name'].lower()
+            # Check for Bluetooth devices (AirPods, Bluetooth headphones, etc)
             if 'airpod' in device_name or 'bluetooth' in device_name or 'bt' in device_name:
-                amplitude = 0.15 
+                amplitude = 0.15  # Higher amplitude for Bluetooth devices
+                logger.debug(f"Bluetooth device detected ({devices[default_output]['name']}), using amplitude {amplitude}")
             else:
-                amplitude = 0.075
-    except Exception:
-        pass
+                amplitude = 0.075  # Moderate amplitude for built-in speakers
+                logger.debug(f"Built-in speaker detected ({devices[default_output]['name']}), using amplitude {amplitude}")
+    except Exception as e:
+        logger.debug(f"Could not detect output device type: {e}, using default amplitude {amplitude}")
     
     all_samples = []
+    
     for freq in frequencies:
+        # Generate sine wave
         t = np.linspace(0, duration, samples_per_tone, False)
         tone = amplitude * np.sin(2 * np.pi * freq * t)
+        
+        # Apply fade in/out to prevent clicks
         fade_in = np.linspace(0, 1, fade_samples)
         fade_out = np.linspace(1, 0, fade_samples)
+        
         tone[:fade_samples] *= fade_in
         tone[-fade_samples:] *= fade_out
+        
         all_samples.append(tone)
     
+    # Concatenate all tones
     chime = np.concatenate(all_samples)
+    
+    # Import config values if not overridden
     from .config import CHIME_LEADING_SILENCE, CHIME_TRAILING_SILENCE
+
+    # Use parameter overrides or fall back to config
     actual_leading_silence = leading_silence if leading_silence is not None else CHIME_LEADING_SILENCE
     actual_trailing_silence = trailing_silence if trailing_silence is not None else CHIME_TRAILING_SILENCE
     
+    # Add leading silence for Bluetooth wake-up time
+    # This prevents the beginning of the chime from being cut off
     silence_samples = int(sample_rate * actual_leading_silence)
     silence = np.zeros(silence_samples)
+    
+    # Add trailing silence to prevent end cutoff
     trailing_silence_samples = int(sample_rate * actual_trailing_silence)
     trailing_silence = np.zeros(trailing_silence_samples)
     
+    # Combine: leading silence + chime + trailing silence
     chime_with_buffer = np.concatenate([silence, chime, trailing_silence])
+    
+    # Convert to 16-bit integer
     chime_int16 = (chime_with_buffer * 32767).astype(np.int16)
+    
     return chime_int16
 
 
@@ -594,7 +629,16 @@ async def play_chime_start(
     leading_silence: Optional[float] = None,
     trailing_silence: Optional[float] = None
 ) -> bool:
-    """Play the recording start chime."""
+    """Play the recording start chime (ascending tones).
+
+    Args:
+        sample_rate: Sample rate for audio
+        leading_silence: Optional override for leading silence duration (seconds)
+        trailing_silence: Optional override for trailing silence duration (seconds)
+
+    Returns:
+        True if chime played successfully, False otherwise
+    """
     try:
         chime = generate_chime(
             [800, 1000],
@@ -603,7 +647,9 @@ async def play_chime_start(
             leading_silence=leading_silence,
             trailing_silence=trailing_silence
         )
+        # Convert int16 to float32 normalized to [-1, 1] for NonBlockingAudioPlayer
         chime_float = chime.astype(np.float32) / 32768.0
+        # Use non-blocking audio player to avoid interference with concurrent playback
         player = NonBlockingAudioPlayer()
         player.play(chime_float, sample_rate, blocking=True)
         return True
@@ -617,7 +663,16 @@ async def play_chime_end(
     leading_silence: Optional[float] = None,
     trailing_silence: Optional[float] = None
 ) -> bool:
-    """Play the recording end chime."""
+    """Play the recording end chime (descending tones).
+
+    Args:
+        sample_rate: Sample rate for audio
+        leading_silence: Optional override for leading silence duration (seconds)
+        trailing_silence: Optional override for trailing silence duration (seconds)
+
+    Returns:
+        True if chime played successfully, False otherwise
+    """
     try:
         chime = generate_chime(
             [1000, 800],
@@ -626,7 +681,9 @@ async def play_chime_end(
             leading_silence=leading_silence,
             trailing_silence=trailing_silence
         )
+        # Convert int16 to float32 normalized to [-1, 1] for NonBlockingAudioPlayer
         chime_float = chime.astype(np.float32) / 32768.0
+        # Use non-blocking audio player to avoid interference with concurrent playback
         player = NonBlockingAudioPlayer()
         player.play(chime_float, sample_rate, blocking=True)
         return True
@@ -636,12 +693,27 @@ async def play_chime_end(
 
 
 async def play_system_audio(message_key: str, fallback_text: Optional[str] = None, soundfont: str = "default") -> bool:
-    """Play a pre-recorded system audio message with fallback to TTS."""
+    """Play a pre-recorded system audio message with fallback to TTS.
+
+    System audio files should be stored in voice_mode/data/soundfonts/{soundfont}/system-messages/
+    with the naming pattern: {message_key}.mp3 (or .wav, .opus, .opus, etc.)
+
+    Args:
+        message_key: Key for the system message (e.g., "waiting-1-minute", "ready-to-listen", "repeating")
+        fallback_text: Text to speak if audio file doesn't exist (falls back to TTS)
+        soundfont: Name of the soundfont to use (default: "default")
+
+    Returns:
+        True if audio was played successfully, False otherwise
+    """
     from pathlib import Path
     from pydub import AudioSegment
     import numpy as np
 
+    # Get path to system messages directory in soundfonts
     system_audio_dir = Path(__file__).parent / "data" / "soundfonts" / soundfont / "system-messages"
+
+    # Try to find the audio file (support multiple formats)
     audio_file = None
     for ext in ['.mp3', '.wav', '.opus', '.m4a']:
         candidate = system_audio_dir / f"{message_key}{ext}"
@@ -656,35 +728,47 @@ async def play_system_audio(message_key: str, fallback_text: Optional[str] = Non
             samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
             if audio.channels == 2:
                 samples = samples.reshape((-1, 2))
-            samples = samples / (2**15)
+            samples = samples / (2**15)  # Normalize to [-1, 1]
+
+            # Use non-blocking audio player to avoid interference with concurrent playback
             player = NonBlockingAudioPlayer()
             player.play(samples, audio.frame_rate, blocking=True)
+
             logger.info(f"✓ System audio played successfully: {message_key}")
             return True
         except Exception as e:
             logger.warning(f"Failed to play system audio {audio_file}: {e}")
+            # Fall through to TTS fallback
 
+    # If no audio file or playback failed, use TTS fallback
     if fallback_text:
         logger.info(f"Using TTS fallback for system message '{message_key}': {fallback_text}")
+        # Import here to avoid circular dependency
         from voice_mode.simple_failover import simple_tts_failover
         success, metrics, config = await simple_tts_failover(
             text=fallback_text,
-            voice="af_sky",
-            model="tts-1"
+            voice="af_sky",  # Use AF Sky for system messages
+            model="tts-1"  # Use standard TTS model for system messages
         )
         return success
+
     return False
 
 
 async def cleanup(openai_clients: dict):
     """Cleanup function to close HTTP clients and resources"""
     logger.info("Shutting down Voice Mode Server...")
+    
+    # Close OpenAI HTTP clients
     try:
+        # Close all clients (including provider-specific ones)
         for client_name, client in openai_clients.items():
             if hasattr(client, '_client'):
                 await client._client.aclose()
                 logger.debug(f"Closed {client_name} HTTP client")
     except Exception as e:
         logger.error(f"Error closing HTTP clients: {e}")
+    
+    # Final garbage collection
     gc.collect()
     logger.info("Cleanup completed")

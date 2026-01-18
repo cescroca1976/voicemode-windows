@@ -1,5 +1,29 @@
-"""Utility modules for voice-mode."""
+"""Voice Mode utility modules."""
 
-from .audio_diagnostics import diagnose_audio_setup
-from .ffmpeg_check import check_ffmpeg
-from .gpu_detection import detect_gpu
+from .event_logger import (
+    EventLogger,
+    get_event_logger,
+    initialize_event_logger,
+    log_tts_start,
+    log_tts_first_audio,
+    log_recording_start,
+    log_recording_end,
+    log_stt_start,
+    log_stt_complete,
+    log_tool_request_start,
+    log_tool_request_end
+)
+
+__all__ = [
+    "EventLogger",
+    "get_event_logger",
+    "initialize_event_logger",
+    "log_tts_start",
+    "log_tts_first_audio",
+    "log_recording_start",
+    "log_recording_end",
+    "log_stt_start",
+    "log_stt_complete",
+    "log_tool_request_start",
+    "log_tool_request_end"
+]

@@ -1,0 +1,4 @@
+mbailey/ai_docs .ai_docs
+mbailey/conventions .conventions
+
+mbailey/metool-mcp

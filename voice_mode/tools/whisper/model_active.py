@@ -1,56 +1,54 @@
-"""MCP tool for managing the active Whisper model."""
-import os
-from pathlib import Path
-from typing import Dict, Any, Optional
-from voice_mode.mcp_instance import mcp
-from voice_mode.config import update_env_file
+"""MCP tool for showing/setting active Whisper model."""
+
+from typing import Optional, Dict, Any
 from voice_mode.tools.whisper.models import (
-    WHISPER_MODEL_REGISTRY,
+    get_active_model,
+    set_active_model,
     is_whisper_model_installed,
-    get_active_model
+    WHISPER_MODEL_REGISTRY
 )
 
-@mcp.tool()
+
 async def whisper_model_active(model_name: Optional[str] = None) -> Dict[str, Any]:
-    """Show or change the active Whisper speech-to-text model.
+    """Show or set the active Whisper model.
     
     Args:
-        model_name: Name of the model to activate (optional)
+        model_name: Model to set as active (None to just show current)
         
     Returns:
-        Status of active model
+        Dict with current/new active model info
     """
     if model_name is None:
         # Just show current
-        active = get_active_model()
+        current = get_active_model()
         return {
             "success": True,
-            "active_model": active,
-            "installed": is_whisper_model_installed(active),
-            "message": f"Current active model is '{active}'"
+            "active_model": current,
+            "installed": is_whisper_model_installed(current),
+            "message": f"Current active model: {current}"
         }
-        
-    # Check if valid
+    
+    # Validate model exists in registry
     if model_name not in WHISPER_MODEL_REGISTRY:
         return {
             "success": False,
-            "error": f"Model '{model_name}' not found. Use whisper_models() to see available models."
+            "error": f"Model {model_name} is not a valid Whisper model",
+            "available_models": list(WHISPER_MODEL_REGISTRY.keys())
         }
-        
-    # Check if installed
+    
+    # Check if model is installed
     if not is_whisper_model_installed(model_name):
         return {
             "success": False,
-            "error": f"Model '{model_name}' is not installed. Install it first with whisper_model_install(model='{model_name}')"
+            "error": f"Model {model_name} is not installed. Install it first with whisper_model_install()",
+            "model": model_name
         }
-        
-    # Update config
-    update_env_file("VOICEMODE_WHISPER_MODEL", model_name)
-    os.environ["VOICEMODE_WHISPER_MODEL"] = model_name
+    
+    # Set new active model
+    set_active_model(model_name)
     
     return {
         "success": True,
-        "message": f"Successfully set active model to '{model_name}'",
         "active_model": model_name,
-        "requires_restart": "Whisper service needs to be restarted for this to take effect: service(service_name='whisper', action='restart')"
+        "message": f"Active model set to {model_name}. Restart whisper service for changes to take effect."
     }

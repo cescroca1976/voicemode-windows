@@ -1,160 +1,222 @@
 """
-OpenAI Error Parser - Human-friendly error messages for Voice Mode.
+OpenAI API error parser for clear user-friendly error messages.
 
-This module intercepts OpenAI API errors (RateLimit, InsufficientFunds, etc.)
-and converts them into helpful, actionable messages for the user.
+This module parses OpenAI API errors and provides clear, actionable messages
+for common issues like quota limits, authentication problems, and rate limits.
 """
 
-import os
-import json
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
-# Configuration
-logger = logging.getLogger("voicemode.error_parser")
+logger = logging.getLogger(__name__)
+
 
 class OpenAIErrorParser:
-    """Parses OpenAI API errors into user-friendly messages."""
-    
-    @staticmethod
-    def parse_error(e: Exception) -> Dict[str, Any]:
-        """
-        Parse an OpenAI error and return a structured response.
-        
-        Returns:
-            Dict containing:
-                - "message": Human friendly error message
-                - "suggestion": What the user can do
-                - "fallback": Recommended fallback (e.g., 'kokoro', 'whisper')
-                - "category": Error category (e.g., 'auth', 'quota', 'rate_limit')
-        """
-        error_name = type(e).__name__
-        error_msg = str(e)
-        
-        # Default response
-        result = {
-            "message": f"OpenAI API Error: {error_name}",
-            "suggestion": "Check your internet connection and API key.",
-            "fallback": None,
-            "category": "unknown",
-            "original_error": error_name
+    """Parse OpenAI API errors and provide user-friendly messages."""
+
+    # Error code mappings for OpenAI API
+    ERROR_CODES = {
+        'insufficient_quota': 'quota_exceeded',
+        'invalid_api_key': 'auth_failed',
+        'invalid_request_error': 'invalid_request',
+        'rate_limit_error': 'rate_limit',
+        'billing_hard_limit_reached': 'billing_limit',
+        'access_terminated': 'access_terminated',
+    }
+
+    # User-friendly messages for each error type
+    ERROR_MESSAGES = {
+        'quota_exceeded': {
+            'title': '💳 OpenAI Quota Exceeded',
+            'message': 'Your OpenAI API quota has been exceeded.',
+            'suggestion': 'Check your OpenAI account at https://platform.openai.com/usage to review your usage and billing limits. Consider adding funds or upgrading your plan.',
+            'fallback': 'You can use local voice services (Whisper/Kokoro) which don\'t require API credits.'
+        },
+        'auth_failed': {
+            'title': '🔐 OpenAI Authentication Failed',
+            'message': 'The OpenAI API key is invalid or missing.',
+            'suggestion': 'Set your OPENAI_API_KEY environment variable with a valid key from https://platform.openai.com/api-keys',
+            'fallback': 'You can use local voice services (Whisper/Kokoro) without an API key.'
+        },
+        'rate_limit': {
+            'title': '⏱️ OpenAI Rate Limit',
+            'message': 'You\'ve hit the OpenAI API rate limit.',
+            'suggestion': 'Wait a moment and try again, or reduce the frequency of requests.',
+            'fallback': 'Local services (Whisper/Kokoro) have no rate limits.'
+        },
+        'billing_limit': {
+            'title': '💰 OpenAI Billing Limit Reached',
+            'message': 'Your OpenAI account has reached its billing hard limit.',
+            'suggestion': 'Visit https://platform.openai.com/account/billing to increase your spending limit.',
+            'fallback': 'Switch to local voice services which have no billing limits.'
+        },
+        'access_terminated': {
+            'title': '🚫 OpenAI Access Terminated',
+            'message': 'Your OpenAI account access has been terminated.',
+            'suggestion': 'Contact OpenAI support or create a new account if appropriate.',
+            'fallback': 'Use local voice services (Whisper/Kokoro) instead.'
+        },
+        'invalid_request': {
+            'title': '❌ Invalid Request',
+            'message': 'The request to OpenAI API was invalid.',
+            'suggestion': 'This might be a bug. Please report it if it persists.',
+            'fallback': 'Try using local services as an alternative.'
         }
-        
-        # 1. Quota / Billing errors
-        if "insufficient_quota" in error_msg or "billing" in error_msg.lower():
-            result.update({
-                "message": "Your OpenAI API quota has been exceeded or billing is not set up.",
-                "suggestion": "Check your usage at https://platform.openai.com/usage",
-                "fallback": "local",
-                "category": "quota"
-            })
-        
-        # 2. Rate Limit errors
-        elif "rate_limit" in error_msg.lower() or "RateLimitError" in error_name:
-            result.update({
-                "message": "OpenAI API rate limit reached.",
-                "suggestion": "Wait a few seconds or switch to local models.",
-                "fallback": "local",
-                "category": "rate_limit"
-            })
-            
-        # 3. Authentication errors
-        elif "api_key" in error_msg.lower() or "AuthenticationError" in error_name:
-            result.update({
-                "message": "Invalid OpenAI API key.",
-                "suggestion": "Run 'voicemode config set OPENAI_API_KEY <your-key>'",
-                "fallback": "local",
-                "category": "auth"
-            })
-            
-        # 4. Model availability / Overloaded
-        elif "overloaded" in error_msg.lower() or "engine_overloaded" in error_msg:
-            result.update({
-                "message": "OpenAI servers are currently overloaded.",
-                "suggestion": "Try again in a moment or use local failover.",
-                "fallback": "local",
-                "category": "server_load"
-            })
-            
-        # 5. Invalid Request (e.g. invalid parameters)
-        elif "InvalidRequestError" in error_name or "invalid_request" in error_msg:
-            result.update({
-                "message": "The request to OpenAI was invalid.",
-                "suggestion": "Check your configuration (e.g. voice name, model).",
-                "fallback": None,
-                "category": "invalid_request"
-            })
-            
-        # 6. Connection Errors
-        elif "connection" in error_msg.lower() or "Timeout" in error_name:
-            result.update({
-                "message": "Could not connect to OpenAI API.",
-                "suggestion": "Check your internet connection.",
-                "fallback": "local",
-                "category": "connection"
-            })
+    }
+
+    @classmethod
+    def parse_error(cls, exception: Exception, endpoint: str = "") -> Dict[str, str]:
+        """
+        Parse an OpenAI API exception and return user-friendly error information.
+
+        Args:
+            exception: The exception raised by OpenAI API
+            endpoint: The endpoint that was being accessed
+
+        Returns:
+            Dict with 'title', 'message', 'suggestion', and 'fallback' keys
+        """
+        error_info = cls._extract_error_info(exception)
+        error_type = cls._determine_error_type(error_info)
+
+        # Get the appropriate message
+        if error_type in cls.ERROR_MESSAGES:
+            result = cls.ERROR_MESSAGES[error_type].copy()
+        else:
+            # Generic error fallback
+            result = {
+                'title': '⚠️ OpenAI API Error',
+                'message': f"OpenAI API error: {error_info.get('message', str(exception))}",
+                'suggestion': 'Check your API configuration and try again.',
+                'fallback': 'Consider using local voice services as an alternative.'
+            }
+
+        # Add endpoint info if provided
+        if endpoint:
+            result['endpoint'] = endpoint
+
+        # Add status code if available
+        if error_info.get('status_code'):
+            result['status_code'] = error_info['status_code']
+
+        # Add raw error for debugging
+        result['raw_error'] = str(exception)
 
         return result
 
-    @staticmethod
-    def get_user_feedback(error_info: Dict[str, Any]) -> str:
-        """Get the message to be displayed to the user or spoken."""
-        msg = f"⚠️  {error_info['message']}"
-        if error_info.get("suggestion"):
-            msg += f"\n💡 Suggestion: {error_info['suggestion']}"
-        if error_info.get("fallback") == "local":
-            msg += "\n🔄 Tip: Use 'voicemode whisper' and 'voicemode kokoro' for local operation."
-        return msg
+    @classmethod
+    def _extract_error_info(cls, exception: Exception) -> Dict:
+        """Extract structured information from the exception."""
+        info = {
+            'message': str(exception),
+            'type': type(exception).__name__
+        }
 
-    @staticmethod
-    def should_failover(error_info: Dict[str, Any]) -> bool:
-        """Determine if we should automatically failover to local models."""
-        auto_failover_categories = ['quota', 'rate_limit', 'server_load', 'connection', 'auth']
-        return error_info.get("category") in auto_failover_categories
+        # Check for HTTP status code
+        if hasattr(exception, 'response'):
+            response = exception.response
+            if hasattr(response, 'status_code'):
+                info['status_code'] = response.status_code
+            if hasattr(response, 'text'):
+                info['response_text'] = response.text
+            if hasattr(response, 'json'):
+                try:
+                    info['response_json'] = response.json()
+                except:
+                    pass
 
+        # Check for OpenAI-specific error attributes
+        if hasattr(exception, 'status_code'):
+            info['status_code'] = exception.status_code
+        if hasattr(exception, 'error'):
+            if isinstance(exception.error, dict):
+                info['error_dict'] = exception.error
+                if 'code' in exception.error:
+                    info['error_code'] = exception.error['code']
+                if 'message' in exception.error:
+                    info['error_message'] = exception.error['message']
 
-def format_openai_error(e: Exception) -> str:
-    """Helper function to quickly format an OpenAI error for the user."""
-    parser = OpenAIErrorParser()
-    info = parser.parse_error(e)
-    return parser.get_user_feedback(info)
+        return info
 
+    @classmethod
+    def _determine_error_type(cls, error_info: Dict) -> str:
+        """Determine the type of error based on the extracted information."""
 
-def get_fallback_advice(e: Exception, tool_type: str = "stt") -> str:
-    """
-    Get advice on which local tool to use as a fallback.
-    
-    Args:
-        e: The exception that occurred
-        tool_type: Either 'stt' or 'tts'
-    """
-    parser = OpenAIErrorParser()
-    info = parser.parse_error(e)
-    
-    if not parser.should_failover(info):
-        return ""
-        
-    if tool_type == "stt":
-        return "You can use local Whisper instead: 'voicemode whisper start'"
-    elif tool_type == "tts":
-        return "You can use local Kokoro instead: 'voicemode kokoro start'"
-    return "Check your local service status with 'voicemode status'"
+        # Check status codes first
+        status_code = error_info.get('status_code')
+        if status_code:
+            if status_code == 401:
+                return 'auth_failed'
+            elif status_code == 429:
+                # Could be rate limit or quota
+                message = error_info.get('message', '').lower()
+                response_text = error_info.get('response_text', '').lower()
+                error_message = error_info.get('error_message', '').lower()
 
+                all_text = f"{message} {response_text} {error_message}"
 
-# Example usage:
-if __name__ == "__main__":
-    # Mock some errors for testing
-    class MockError(Exception): pass
-    
-    errors = [
-        MockError("insufficient_quota: You exceeded your current quota..."),
-        MockError("AuthenticationError: Incorrect API key provided..."),
-        MockError("Rate limit reached for gpt-4o-mini-tts..."),
-        MockError("Error communicating with OpenAI: Connection timed out")
-    ]
-    
-    print("Testing OpenAI Error Parser:\n")
-    for e in errors:
-        print(f"Original: {e}")
-        print(format_openai_error(e))
-        print("-" * 40)
+                if 'quota' in all_text or 'insufficient_quota' in all_text:
+                    return 'quota_exceeded'
+                elif 'billing' in all_text:
+                    return 'billing_limit'
+                else:
+                    return 'rate_limit'
+            elif status_code == 403:
+                message = error_info.get('message', '').lower()
+                if 'terminated' in message:
+                    return 'access_terminated'
+                return 'auth_failed'
+
+        # Check error codes
+        error_code = error_info.get('error_code', '').lower()
+        if error_code in cls.ERROR_CODES:
+            return cls.ERROR_CODES[error_code]
+
+        # Check message content
+        message = error_info.get('message', '').lower()
+        error_message = error_info.get('error_message', '').lower()
+        all_messages = f"{message} {error_message}"
+
+        if 'insufficient_quota' in all_messages or 'quota' in all_messages:
+            return 'quota_exceeded'
+        elif 'invalid' in all_messages and 'key' in all_messages:
+            return 'auth_failed'
+        elif 'unauthorized' in all_messages or 'authentication' in all_messages:
+            return 'auth_failed'
+        elif 'rate' in all_messages and 'limit' in all_messages:
+            return 'rate_limit'
+        elif 'billing' in all_messages:
+            return 'billing_limit'
+        elif 'terminated' in all_messages:
+            return 'access_terminated'
+
+        # Default to unknown
+        return 'unknown'
+
+    @classmethod
+    def format_error_message(cls, error_dict: Dict[str, str], include_fallback: bool = True) -> str:
+        """
+        Format error information into a user-friendly message string.
+
+        Args:
+            error_dict: Dictionary from parse_error()
+            include_fallback: Whether to include fallback suggestion
+
+        Returns:
+            Formatted error message string
+        """
+        lines = [
+            error_dict['title'],
+            "",
+            error_dict['message'],
+            "",
+            f"💡 {error_dict['suggestion']}"
+        ]
+
+        if include_fallback and 'fallback' in error_dict:
+            lines.extend(["", f"ℹ️ {error_dict['fallback']}"])
+
+        if 'status_code' in error_dict:
+            lines.append(f"\n[HTTP {error_dict['status_code']}]")
+
+        return "\n".join(lines)

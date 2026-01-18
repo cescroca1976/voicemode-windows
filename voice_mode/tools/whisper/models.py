@@ -1,22 +1,21 @@
 """Whisper model registry and utilities."""
+
 import os
-import shutil
-import logging
+import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Union, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
+from voice_mode.config import WHISPER_MODEL_PATH, WHISPER_MODEL
 
-from voice_mode.config import BASE_DIR
-
-logger = logging.getLogger("voicemode")
 
 class ModelInfo(TypedDict):
-    size_mb: int
-    languages: str
-    description: str
-    filename: str
+    """Information about a Whisper model."""
+    size_mb: int  # Download size in MB
+    languages: str  # Language support description
+    description: str  # Brief description
+    filename: str  # Expected filename when downloaded
 
-# Central registry of all available Whisper models
-# Size is download size in MB
+
+# Registry of all available Whisper models
 WHISPER_MODEL_REGISTRY: Dict[str, ModelInfo] = {
     "tiny": {
         "size_mb": 39,
@@ -27,61 +26,61 @@ WHISPER_MODEL_REGISTRY: Dict[str, ModelInfo] = {
     "tiny.en": {
         "size_mb": 39,
         "languages": "English only",
-        "description": "Fastest, English only",
+        "description": "Fastest English model",
         "filename": "ggml-tiny.en.bin"
     },
     "base": {
-        "size_mb": 74,
+        "size_mb": 142,
         "languages": "Multilingual",
-        "description": "Very fast, basic accuracy",
+        "description": "Good balance of speed and accuracy",
         "filename": "ggml-base.bin"
     },
     "base.en": {
-        "size_mb": 74,
+        "size_mb": 142,
         "languages": "English only",
-        "description": "Very fast, basic English accuracy",
+        "description": "Good English model",
         "filename": "ggml-base.en.bin"
     },
     "small": {
-        "size_mb": 244,
+        "size_mb": 466,
         "languages": "Multilingual",
-        "description": "Fast, good balance",
+        "description": "Better accuracy, slower",
         "filename": "ggml-small.bin"
     },
     "small.en": {
-        "size_mb": 244,
+        "size_mb": 466,
         "languages": "English only",
-        "description": "Fast, good English accuracy",
+        "description": "Better English accuracy",
         "filename": "ggml-small.en.bin"
     },
     "medium": {
-        "size_mb": 769,
+        "size_mb": 1500,
         "languages": "Multilingual",
-        "description": "Accurate, moderate speed",
+        "description": "High accuracy, slow",
         "filename": "ggml-medium.bin"
     },
     "medium.en": {
-        "size_mb": 769,
+        "size_mb": 1500,
         "languages": "English only",
-        "description": "Accurate, English only",
+        "description": "High English accuracy",
         "filename": "ggml-medium.en.bin"
     },
     "large-v1": {
-        "size_mb": 1600,
+        "size_mb": 2900,
         "languages": "Multilingual",
-        "description": "Most accurate (original large)",
+        "description": "Original large model",
         "filename": "ggml-large-v1.bin"
     },
     "large-v2": {
-        "size_mb": 1600,
+        "size_mb": 2900,
         "languages": "Multilingual",
-        "description": "Enhanced accuracy (v2)",
+        "description": "Improved large model (recommended)",
         "filename": "ggml-large-v2.bin"
     },
     "large-v3": {
-        "size_mb": 1600,
+        "size_mb": 3100,
         "languages": "Multilingual",
-        "description": "Best overall accuracy (v3)",
+        "description": "Latest large model",
         "filename": "ggml-large-v3.bin"
     },
     "large-v3-turbo": {
@@ -92,196 +91,383 @@ WHISPER_MODEL_REGISTRY: Dict[str, ModelInfo] = {
     }
 }
 
-DEFAULT_WHISPER_MODEL = "base"
 
-def get_whisper_models_dir() -> Path:
+def get_model_directory() -> Path:
     """Get the directory where Whisper models are stored."""
-    models_dir = BASE_DIR / "models" / "whisper"
-    models_dir.mkdir(parents=True, exist_ok=True)
-    return models_dir
-
-def get_installed_whisper_models() -> List[str]:
-    """Get list of currently installed Whisper model names."""
-    models_dir = get_whisper_models_dir()
-    installed = []
+    # Use the configured path from config.py
+    model_dir = Path(WHISPER_MODEL_PATH)
     
-    for name, info in WHISPER_MODEL_REGISTRY.items():
-        if (models_dir / info["filename"]).exists():
-            installed.append(name)
-            
-    return installed
+    # If config path doesn't exist, check service installation
+    if not model_dir.exists():
+        service_models = Path.home() / ".voicemode" / "services" / "whisper" / "models"
+        if service_models.exists():
+            return service_models
+    
+    return model_dir
 
-def is_whisper_model_installed(model_name: str) -> bool:
-    """Check if a specific Whisper model is installed."""
-    if model_name not in WHISPER_MODEL_REGISTRY:
-        return False
-        
-    models_dir = get_whisper_models_dir()
-    return (models_dir / WHISPER_MODEL_REGISTRY[model_name]["filename"]).exists()
-
-def has_whisper_coreml_model(model_name: str) -> bool:
-    """Check if a Core ML version of the model exists (macOS only)."""
-    if model_name not in WHISPER_MODEL_REGISTRY:
-        return False
-        
-    models_dir = get_whisper_models_dir()
-    # Core ML models are folders named ggml-{name}-encoder.mlmodelc
-    coreml_dir = models_dir / f"ggml-{model_name}-encoder.mlmodelc"
-    return coreml_dir.exists() and coreml_dir.is_dir()
 
 def get_active_model() -> str:
-    """Get the currently active Whisper model name from environment."""
-    return os.environ.get("VOICEMODE_WHISPER_MODEL", DEFAULT_WHISPER_MODEL)
+    """Get the currently selected Whisper model."""
+    # Use the configured model from config.py
+    model = WHISPER_MODEL
+    
+    # Validate it's a known model
+    if model not in WHISPER_MODEL_REGISTRY:
+        return "base"  # Default fallback
+    
+    return model
 
-def format_size(size_mb: float) -> str:
-    """Format size in MB for display."""
+
+def is_whisper_model_installed(model_name: str) -> bool:
+    """Check if a Whisper model is installed."""
+    if model_name not in WHISPER_MODEL_REGISTRY:
+        return False
+    
+    model_dir = get_model_directory()
+    model_info = WHISPER_MODEL_REGISTRY[model_name]
+    model_path = model_dir / model_info["filename"]
+    
+    return model_path.exists()
+
+
+def has_whisper_coreml_model(model_name: str) -> bool:
+    """Check if a Core ML model is available for the given Whisper model.
+    
+    Core ML models are only used on macOS with Apple Silicon.
+    They have the extension .mlmodelc and provide faster inference.
+    """
+    import platform
+    
+    # Core ML is only relevant on macOS
+    if platform.system() != "Darwin":
+        return False
+    
+    if model_name not in WHISPER_MODEL_REGISTRY:
+        return False
+    
+    model_dir = get_model_directory()
+    model_info = WHISPER_MODEL_REGISTRY[model_name]
+    
+    # Core ML models can be either compiled (.mlmodelc) or package (.mlpackage)
+    # Check for both formats
+    coreml_compiled = model_dir / f"ggml-{model_name}-encoder.mlmodelc"
+    coreml_package = model_dir / f"coreml-encoder-{model_name}.mlpackage"
+    
+    return coreml_compiled.exists() or coreml_package.exists()
+
+
+def get_installed_whisper_models() -> List[str]:
+    """Get list of installed Whisper models."""
+    installed = []
+    for model_name in WHISPER_MODEL_REGISTRY:
+        if is_whisper_model_installed(model_name):
+            installed.append(model_name)
+    return installed
+
+
+def get_total_size(models: Optional[List[str]] = None) -> int:
+    """Get total size of models in MB.
+    
+    Args:
+        models: List of model names. If None, uses all models.
+    
+    Returns:
+        Total size in MB
+    """
+    if models is None:
+        models = list(WHISPER_MODEL_REGISTRY.keys())
+    
+    total = 0
+    for model in models:
+        if model in WHISPER_MODEL_REGISTRY:
+            total += WHISPER_MODEL_REGISTRY[model]["size_mb"]
+    
+    return total
+
+
+def format_size(size_mb: int) -> str:
+    """Format size in MB to human-readable string."""
     if size_mb < 1000:
         return f"{size_mb} MB"
-    return f"{size_mb/1024:.2f} GB"
+    else:
+        size_gb = size_mb / 1000
+        return f"{size_gb:.1f} GB"
+
+
+def is_macos() -> bool:
+    """Check if running on macOS."""
+    import platform
+    return platform.system() == "Darwin"
+
+
+def is_apple_silicon() -> bool:
+    """Check if running on Apple Silicon (M1/M2/M3/M4)."""
+    import platform
+    return platform.system() == "Darwin" and platform.machine() == "arm64"
+
+
+def set_active_model(model_name: str) -> None:
+    """Set the active Whisper model.
+
+    Args:
+        model_name: Name of the model to set as active
+
+    Updates the voicemode.env configuration file for persistence.
+    Preserves multiline values (like VOICEMODE_PRONOUNCE) correctly.
+    """
+    from pathlib import Path
+    import re
+
+    # Configuration file path
+    config_path = Path.home() / ".voicemode" / "voicemode.env"
+
+    # Ensure directory exists
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write back to file, preserving structure and multiline values
+    lines = []
+    found_model_setting = False
+    in_multiline = False
+    multiline_quote = None
+
+    if config_path.exists():
+        with open(config_path, 'r') as f:
+            for line in f:
+                stripped = line.strip()
+
+                # Track multiline values (quoted strings spanning multiple lines)
+                if in_multiline:
+                    lines.append(line)
+                    # Check if this line ends the multiline value
+                    if stripped.endswith(multiline_quote):
+                        in_multiline = False
+                        multiline_quote = None
+                    continue
+
+                # Check for VOICEMODE_WHISPER_MODEL line to update
+                if stripped and not stripped.startswith('#'):
+                    match = re.match(r'^VOICEMODE_WHISPER_MODEL=', stripped)
+                    if match:
+                        lines.append(f"VOICEMODE_WHISPER_MODEL={model_name}\n")
+                        found_model_setting = True
+                        continue
+
+                    # Check if this line starts a multiline value
+                    # Pattern: KEY="... or KEY='... without closing quote on same line
+                    multiline_match = re.match(r'^[A-Z_]+=(["\'])(.*)$', stripped)
+                    if multiline_match:
+                        quote_char = multiline_match.group(1)
+                        rest = multiline_match.group(2)
+                        # If the rest doesn't end with the same quote, it's multiline
+                        if not rest.endswith(quote_char):
+                            in_multiline = True
+                            multiline_quote = quote_char
+
+                lines.append(line)
+
+    # Add VOICEMODE_WHISPER_MODEL if it wasn't in the file
+    if not found_model_setting:
+        if lines and lines[-1].strip() != '':
+            lines.append('\n')
+        lines.append("# Whisper Configuration\n")
+        lines.append(f"VOICEMODE_WHISPER_MODEL={model_name}\n")
+
+    # Write the updated configuration
+    with open(config_path, 'w') as f:
+        f.writelines(lines)
+
 
 def remove_whisper_model(model_name: str, remove_coreml: bool = True) -> Dict[str, Any]:
-    """
-    Remove an installed Whisper model.
+    """Remove a whisper model and optionally its Core ML version.
     
     Args:
         model_name: Name of the model to remove
-        remove_coreml: Whether to also remove the Core ML version if it exists
+        remove_coreml: Also remove Core ML version if it exists
         
     Returns:
-        Dict with status and details
+        Dict with success status and space freed
     """
+    model_dir = get_model_directory()
+    
     if model_name not in WHISPER_MODEL_REGISTRY:
-        return {
-            "success": False, 
-            "error": f"Model '{model_name}' not found in registry"
-        }
-        
-    models_dir = get_whisper_models_dir()
+        return {"success": False, "error": f"Model {model_name} not recognized"}
+    
     model_info = WHISPER_MODEL_REGISTRY[model_name]
-    model_file = models_dir / model_info["filename"]
+    model_file = model_dir / model_info["filename"]
     
-    space_freed_mb = 0
-    removed_files = []
+    if not model_file.exists():
+        return {"success": False, "error": f"Model {model_name} not found"}
     
-    # 1. Remove standard GGML model
-    if model_file.exists():
-        size = model_file.stat().st_size / (1024 * 1024)
-        model_file.unlink()
-        space_freed_mb += size
-        removed_files.append(model_info["filename"])
+    space_freed = model_file.stat().st_size
+    model_file.unlink()
+    
+    if remove_coreml and has_whisper_coreml_model(model_name):
+        # Remove both possible Core ML formats
+        coreml_compiled = model_dir / f"ggml-{model_name}-encoder.mlmodelc"
+        coreml_package = model_dir / f"coreml-encoder-{model_name}.mlpackage"
         
-    # 2. Remove Core ML model if requested
-    if remove_coreml:
-        coreml_dir = models_dir / f"ggml-{model_name}-encoder.mlmodelc"
-        if coreml_dir.exists():
-            # Calculate recursive size for directory
-            size = sum(f.stat().st_size for f in coreml_dir.glob('**/*') if f.is_file()) / (1024 * 1024)
-            shutil.rmtree(coreml_dir)
-            space_freed_mb += size
-            removed_files.append(f"ggml-{model_name}-encoder.mlmodelc (Core ML)")
+        if coreml_compiled.exists():
+            import shutil
+            shutil.rmtree(coreml_compiled)
+            # Estimate size since it's a directory
+            space_freed += 100 * 1024 * 1024  # Approximate 100MB
             
-    if not removed_files:
-        return {
-            "success": False,
-            "message": f"Model {model_name} was not installed"
-        }
-        
+        if coreml_package.exists():
+            import shutil
+            shutil.rmtree(coreml_package)
+            space_freed += 100 * 1024 * 1024  # Approximate 100MB
+    
     return {
         "success": True,
-        "message": f"Successfully removed model {model_name}",
-        "removed_files": removed_files,
-        "space_freed_mb": round(space_freed_mb, 1)
+        "model": model_name,
+        "space_freed": space_freed,
+        "space_freed_mb": space_freed // (1024 * 1024)
     }
 
+
 def benchmark_whisper_model(model_name: str, sample_file: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Benchmark the performance of a specific model.
+    """Run performance benchmark on a whisper model.
     
     Args:
-        model_name: Name of model to benchmark
-        sample_file: Path to optional sample audio file
+        model_name: Name of the model to benchmark
+        sample_file: Optional audio file to use (defaults to JFK sample)
         
     Returns:
         Dict with benchmark results
     """
-    # This is a stub for the actual implementation in whisper-server
-    # In practice, we call the whisper-server binary with the benchmark flag
     import subprocess
-    import time
+    import re
+    from pathlib import Path
     
     if not is_whisper_model_installed(model_name):
-        return {"success": False, "error": f"Model {model_name} is not installed"}
-        
-    whisper_dir = BASE_DIR / "services" / "whisper"
-    binary = whisper_dir / "whisper-server"
-    if not binary.exists():
-        # Fallback to current dir if not in services/whisper
-        binary = whisper_dir / "server"
-        if not binary.exists():
-            return {"success": False, "error": "whisper-server binary not found. Install whisper first."}
-            
-    models_dir = get_whisper_models_dir()
-    model_path = models_dir / WHISPER_MODEL_REGISTRY[model_name]["filename"]
+        return {
+            "success": False,
+            "error": f"Model {model_name} is not installed"
+        }
     
-    # Use internal samples if provided, otherwise use a generic 30s audio for testing
-    # whisper.cpp has a 'bench' command or we can just measure a transcription
-    test_audio = sample_file or str(whisper_dir / "samples" / "jfk.wav")
+    # Find whisper-cli binary
+    whisper_bin = Path.home() / ".voicemode" / "services" / "whisper" / "build" / "bin" / "whisper-cli"
+    if not whisper_bin.exists():
+        return {
+            "success": False,
+            "error": "Whisper CLI not found. Please install whisper.cpp first."
+        }
     
-    if not os.path.exists(test_audio):
-        # Create a simple dummy test if needed or return error
-        return {"success": False, "error": f"Sample file not found: {test_audio}"}
-        
-    logger.info(f"Benchmarking model {model_name} with {test_audio}...")
+    # Use sample file or default JFK sample
+    if sample_file is None:
+        sample_file = Path.home() / ".voicemode" / "services" / "whisper" / "samples" / "jfk.wav"
+        if not sample_file.exists():
+            return {
+                "success": False,
+                "error": "Default sample file not found"
+            }
     
+    model_dir = get_model_directory()
+    model_info = WHISPER_MODEL_REGISTRY[model_name]
+    model_path = model_dir / model_info["filename"]
+    
+    # Run benchmark
     try:
-        start_time = time.time()
-        # We'll use the 'main' tool from whisper.cpp for benchmarking if available
-        # otherwise we use the server for a real-world test
-        cmd = [
-            str(whisper_dir / "main"),
-            "-m", str(model_path),
-            "-f", test_audio,
-            "-nt" # no timestamps for pure speed test
-        ]
+        result = subprocess.run(
+            [
+                str(whisper_bin),
+                "--model", str(model_path),
+                "--file", str(sample_file),
+                "--threads", "8",
+                "--beam-size", "1"
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
         
-        # Check if main exists
-        if not os.path.exists(cmd[0]):
-             return {"success": False, "error": "whisper.cpp 'main' utility not found for benchmarking."}
-             
-        process = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        end_time = time.time()
+        # Parse timing information
+        output = result.stderr + result.stdout
         
-        if process.returncode != 0:
-            return {"success": False, "error": f"Benchmark failed: {process.stderr}"}
-            
-        total_time = end_time - start_time
+        # Extract timings using regex
+        encode_match = re.search(r'encode time\s*=\s*([\d.]+)\s*ms', output)
+        total_match = re.search(r'total time\s*=\s*([\d.]+)\s*ms', output)
+        load_match = re.search(r'load time\s*=\s*([\d.]+)\s*ms', output)
         
-        # Parse output for actual processing metrics if possible
-        # whisper.cpp main prints timing info at the end
-        # Example: whisper_print_timings:     load time =   123.45 ms
-        #          whisper_print_timings:     total time =  1234.56 ms
+        encode_time = float(encode_match.group(1)) if encode_match else 0
+        total_time = float(total_match.group(1)) if total_match else 0
+        load_time = float(load_match.group(1)) if load_match else 0
         
-        load_time_ms = 0
-        p_time_ms = 0
-        
-        for line in process.stderr.splitlines():
-            if "load time =" in line:
-                try: load_time_ms = float(line.split("=")[1].strip().split()[0])
-                except: pass
-            if "total time =" in line:
-                try: p_time_ms = float(line.split("=")[1].strip().split()[0])
-                except: pass
+        # Calculate real-time factor (11 seconds for JFK sample)
+        rtf = 11000 / total_time if total_time > 0 else 0
         
         return {
             "success": True,
             "model": model_name,
-            "total_time_ms": round(total_time * 1000, 2),
-            "load_time_ms": load_time_ms,
-            "decode_time_ms": p_time_ms,
-            "real_time_factor": round(30000 / p_time_ms, 2) if p_time_ms > 0 else 0 # Assuming jfk.wav is ~30s
+            "load_time_ms": load_time,
+            "encode_time_ms": encode_time,
+            "total_time_ms": total_time,
+            "real_time_factor": round(rtf, 1),
+            "sample_duration_s": 11.0
         }
         
     except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Benchmark timed out"}
+        return {
+            "success": False,
+            "error": "Benchmark timed out"
+        }
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+# Backwards compatibility - deprecated functions
+def get_current_model() -> str:
+    """DEPRECATED: Use get_active_model() instead."""
+    warnings.warn(
+        "get_current_model() is deprecated. Use get_active_model() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return get_active_model()
+
+
+def set_current_model(model_name: str) -> None:
+    """DEPRECATED: Use set_active_model() instead."""
+    warnings.warn(
+        "set_current_model() is deprecated. Use set_active_model() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return set_active_model(model_name)
+
+
+def is_model_installed(model_name: str) -> bool:
+    """DEPRECATED: Use is_whisper_model_installed() instead."""
+    warnings.warn(
+        "is_model_installed() is deprecated. Use is_whisper_model_installed() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return is_whisper_model_installed(model_name)
+
+
+def get_installed_models() -> List[str]:
+    """DEPRECATED: Use get_installed_whisper_models() instead."""
+    warnings.warn(
+        "get_installed_models() is deprecated. Use get_installed_whisper_models() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return get_installed_whisper_models()
+
+
+def has_coreml_model(model_name: str) -> bool:
+    """DEPRECATED: Use has_whisper_coreml_model() instead."""
+    warnings.warn(
+        "has_coreml_model() is deprecated. Use has_whisper_coreml_model() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return has_whisper_coreml_model(model_name)
+
+
+# Also provide WHISPER_MODELS as alias for backwards compatibility
+WHISPER_MODELS = WHISPER_MODEL_REGISTRY

@@ -1,147 +1,310 @@
 """
-Simple try-failover implementation for Voice Mode.
+Simple failover implementation for voice-mode.
 
-Provides a basic mechanism to attempt a voice operation with a primary
-provider and fall back to a secondary provider upon failure, without
-requiring the full heavy health-checking discovery system.
+This module provides a direct try-and-failover approach without health checks.
+Connection refused errors are instant, so there's no performance penalty.
 """
 
-import asyncio
 import logging
-import os
-from typing import Any, Callable, Dict, Optional, TypeVar, Awaitable
+from typing import Optional, Tuple, Dict, Any
+from openai import AsyncOpenAI
+from .openai_error_parser import OpenAIErrorParser
+from .provider_discovery import is_local_provider
 
-from voice_mode.config import logger
+from .config import TTS_BASE_URLS, STT_BASE_URLS, OPENAI_API_KEY
+from .provider_discovery import detect_provider_type
 
-T = TypeVar('T')
-
-class SimpleFailover:
-    """Implements basic try-failover for voice operations."""
-
-    @staticmethod
-    async def try_with_failover(
-        primary_fn: Callable[..., Awaitable[T]],
-        secondary_fn: Callable[..., Awaitable[T]],
-        *args,
-        primary_name: str = "Primary",
-        secondary_name: str = "Secondary",
-        **kwargs
-    ) -> T:
-        """
-        Attempt an operation with a primary function, falling back to secondary.
-        
-        Args:
-            primary_fn: Primary async function to call
-            secondary_fn: Fallback async function to call
-            primary_name: Name of the primary provider (for logging)
-            secondary_name: Name of the secondary provider (for logging)
-            *args: Arguments to pass to both functions
-            **kwargs: Keyword arguments to pass to both functions
-            
-        Returns:
-            The result of whichever function succeeds
-            
-        Raises:
-            The exception from the secondary function if both fail
-        """
-        try:
-            logger.debug(f"Attempting {primary_name}...")
-            return await primary_fn(*args, **kwargs)
-        except Exception as e:
-            logger.warning(f"{primary_name} failed: {e}. Falling back to {secondary_name}...")
-            
-            # Record original error for possible reporting
-            kwargs['_original_error'] = e
-            
-            try:
-                return await secondary_fn(*args, **kwargs)
-            except Exception as secondary_e:
-                logger.error(f"Both {primary_name} and {secondary_name} failed.")
-                logger.error(f"Secondary error: {secondary_e}")
-                # Re-raise the secondary error
-                raise secondary_e
-
-    @staticmethod
-    def get_stt_failover_plan(preferred: Optional[str] = None) -> Tuple[str, str]:
-        """Determine primary and secondary STT providers."""
-        # Respect preferred if provided
-        if preferred == "whisper":
-            return "whisper", "openai"
-        elif preferred == "openai":
-            return "openai", "whisper"
-            
-        # Default logic
-        from voice_mode.config import DEFAULT_STT_PROVIDER
-        if DEFAULT_STT_PROVIDER == "whisper":
-            return "whisper", "openai"
-        return "openai", "whisper"
-
-    @staticmethod
-    def get_tts_failover_plan(preferred: Optional[str] = None) -> Tuple[str, str]:
-        """Determine primary and secondary TTS providers."""
-        # Respect preferred if provided
-        if preferred == "kokoro":
-            return "kokoro", "openai"
-        elif preferred == "openai":
-            return "openai", "kokoro"
-            
-        # Default logic
-        from voice_mode.config import DEFAULT_TTS_PROVIDER
-        if DEFAULT_TTS_PROVIDER == "kokoro":
-            return "kokoro", "openai"
-        return "openai", "kokoro"
+logger = logging.getLogger("voicemode")
 
 
-# Helper for unified failover logic in higher-level tools
-async def execute_with_failover(
-    stt_or_tts: str,
-    operation_fn: Callable[..., Awaitable[Any]],
-    primary_provider: str,
-    secondary_provider: str,
-    *args,
+async def simple_tts_failover(
+    text: str,
+    voice: str,
+    model: str,
     **kwargs
-) -> Any:
+) -> Tuple[bool, Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """
-    Executes a voice operation with failover logic tailored to the tool type.
+    Simple TTS failover - try each endpoint in order until one works.
+    
+    Returns:
+        Tuple of (success, metrics, config)
     """
-    try:
-        # Clone kwargs to avoid side effects
-        call_kwargs = kwargs.copy()
-        call_kwargs['provider'] = primary_provider
-        
-        logger.debug(f"Executing {stt_or_tts} with {primary_provider}...")
-        return await operation_fn(*args, **call_kwargs)
-        
-    except Exception as e:
-        logger.warning(f"{stt_or_tts} {primary_provider} failed: {e}")
-        
-        # Determine if we should failover based on error type (if possible)
-        # For now, we simple-failover on any exception
-        
-        logger.info(f"Falling back to {secondary_provider} for {stt_or_tts}...")
-        
-        call_kwargs = kwargs.copy()
-        call_kwargs['provider'] = secondary_provider
-        call_kwargs['is_fallback'] = True
-        call_kwargs['fallback_reason'] = str(e)
-        
-        return await operation_fn(*args, **call_kwargs)
+    logger.info(f"simple_tts_failover called with: text='{text[:50]}...', voice={voice}, model={model}")
+    logger.info(f"kwargs: {kwargs}")
+    
+    from .core import text_to_speech
+    from .conversation_logger import get_conversation_logger
 
+    # Track attempted endpoints and their errors
+    attempted_endpoints = []
 
-if __name__ == "__main__":
-    # Test stub
-    async def primary():
-        print("Running primary...")
-        raise ValueError("Primary failed")
-        
-    async def secondary():
-        print("Running secondary...")
-        return "Secondary result"
-        
-    async def run_test():
-        result = await SimpleFailover.try_with_failover(
-            primary, secondary, primary_name="OpenAI", secondary_name="Local"
+    # Get conversation ID from logger
+    conversation_logger = get_conversation_logger()
+    conversation_id = conversation_logger.conversation_id
+
+    # Try each TTS endpoint in order
+    logger.info(f"simple_tts_failover: Starting with TTS_BASE_URLS = {TTS_BASE_URLS}")
+    for base_url in TTS_BASE_URLS:
+        logger.info(f"Trying TTS endpoint: {base_url}")
+
+        # Create client for this endpoint
+        provider_type = detect_provider_type(base_url)
+        api_key = OPENAI_API_KEY if provider_type == "openai" else (OPENAI_API_KEY or "dummy-key-for-local")
+
+        # Select appropriate voice for this provider
+        if provider_type == "openai":
+            # Map Kokoro voices to OpenAI equivalents, or use OpenAI default
+            openai_voices = ["alloy", "echo", "fable", "nova", "onyx", "shimmer"]
+            if voice in openai_voices:
+                selected_voice = voice
+            else:
+                # Map common Kokoro voices to OpenAI equivalents
+                voice_mapping = {
+                    "af_sky": "nova",
+                    "af_sarah": "nova",
+                    "af_alloy": "alloy",
+                    "am_adam": "onyx",
+                    "am_echo": "echo",
+                    "am_onyx": "onyx",
+                    "bm_fable": "fable"
+                }
+                selected_voice = voice_mapping.get(voice, "alloy")  # Default to alloy
+                logger.info(f"Mapped voice {voice} to {selected_voice} for OpenAI")
+        else:
+            selected_voice = voice  # Use original voice for Kokoro
+
+        # Disable retries for local endpoints - they either work or don't
+        max_retries = 0 if is_local_provider(base_url) else 2
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=30.0,  # Reasonable timeout
+            max_retries=max_retries
         )
-        print(f"Final result: {result}")
-        
-    asyncio.run(run_test())
+
+        # Create clients dict for text_to_speech
+        openai_clients = {'tts': client}
+
+        # Try TTS with this endpoint
+        # Wrap in try/catch to get actual exception details
+        last_exception = None
+        try:
+            success, metrics = await text_to_speech(
+                text=text,
+                openai_clients=openai_clients,
+                tts_model=model,
+                tts_voice=selected_voice,
+                tts_base_url=base_url,
+                conversation_id=conversation_id,
+                **kwargs
+            )
+
+            if success:
+                config = {
+                    'base_url': base_url,
+                    'provider': provider_type,
+                    'voice': selected_voice,  # Return the voice actually used
+                    'model': model,
+                    'endpoint': f"{base_url}/audio/speech"
+                }
+                logger.info(f"TTS succeeded with {base_url} using voice {selected_voice}")
+                return True, metrics, config
+            else:
+                # text_to_speech returned False, but we don't have exception details
+                # Create a generic error message
+                last_exception = Exception("TTS request failed")
+
+        except Exception as e:
+            last_exception = e
+
+        # Handle the error (either from exception or False return)
+        if last_exception:
+            error_message = str(last_exception)
+            logger.error(f"TTS failed for {base_url}: {error_message}")
+            logger.debug(f"Exception type: {type(last_exception).__name__}")  # Debug logging
+
+            # Parse OpenAI errors for better user feedback
+            error_details = None
+            if provider_type == "openai":
+                error_details = OpenAIErrorParser.parse_error(last_exception, endpoint=f"{base_url}/audio/speech")
+                # Log the user-friendly error message
+                if error_details and error_details.get('title'):
+                    logger.error(f"  {error_details['title']}: {error_details.get('message', '')}")
+                    if error_details.get('suggestion'):
+                        logger.info(f"  💡 {error_details['suggestion']}")
+
+            # Add to attempted endpoints with error details
+            attempted_endpoints.append({
+                'endpoint': f"{base_url}/audio/speech",
+                'provider': provider_type,
+                'voice': selected_voice,
+                'model': model,
+                'error': error_message,
+                'error_details': error_details  # Include parsed error details
+            })
+
+            # Continue to next endpoint
+            continue
+
+    # All endpoints failed - return detailed error info
+    logger.error(f"All TTS endpoints failed after {len(attempted_endpoints)} attempts")
+    error_config = {
+        'error_type': 'all_providers_failed',
+        'attempted_endpoints': attempted_endpoints
+    }
+    return False, None, error_config
+
+
+async def simple_stt_failover(
+    audio_file,
+    model: str = "whisper-1",
+    **kwargs
+) -> Optional[Dict[str, Any]]:
+    """
+    Simple STT failover - try each endpoint in order until one works.
+
+    Returns:
+        Dict with transcription result or error information:
+        - Success: {"text": "...", "provider": "...", "endpoint": "...", "metrics": {...}}
+        - No speech: {"error_type": "no_speech", "provider": "...", "metrics": {...}}
+        - All failed: {"error_type": "connection_failed", "attempted_endpoints": [...]}
+
+        The metrics dict (when present) contains:
+        - file_size_bytes: Size of audio file sent
+        - request_time_ms: Total time for the API request
+        - is_local: Whether the endpoint is local (localhost/LAN)
+    """
+    import time
+
+    connection_errors = []
+    successful_but_empty = False
+    successful_provider = None
+
+    # Get file size for metrics
+    file_size_bytes = 0
+    try:
+        # Save current position, seek to end to get size, restore position
+        start_pos = audio_file.tell()
+        audio_file.seek(0, 2)  # Seek to end
+        file_size_bytes = audio_file.tell()
+        audio_file.seek(start_pos)  # Restore position
+        # Ensure we got an integer
+        if not isinstance(file_size_bytes, int):
+            file_size_bytes = 0
+    except Exception as e:
+        logger.debug(f"Could not get file size: {e}")
+        file_size_bytes = 0
+
+    # Log STT request details
+    logger.info("STT: Starting speech-to-text conversion")
+    logger.info(f"  Available endpoints: {STT_BASE_URLS}")
+    if file_size_bytes > 0:
+        logger.info(f"  Audio file size: {file_size_bytes / 1024:.1f}KB")
+
+    # Try each STT endpoint in order
+    for i, base_url in enumerate(STT_BASE_URLS):
+        try:
+            # Detect provider type for logging
+            provider_type = detect_provider_type(base_url)
+
+            if i == 0:
+                logger.info(f"STT: Attempting primary endpoint: {base_url} ({provider_type})")
+            else:
+                logger.warning(f"STT: Primary failed, attempting fallback #{i}: {base_url} ({provider_type})")
+
+            # Create client for this endpoint
+            api_key = OPENAI_API_KEY if provider_type == "openai" else (OPENAI_API_KEY or "dummy-key-for-local")
+
+            # Disable retries for local endpoints - they either work or don't
+            max_retries = 0 if is_local_provider(base_url) else 2
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                timeout=60.0,  # Allow time for slower transcriptions
+                max_retries=max_retries
+            )
+
+            # Try STT with this endpoint - track timing
+            request_start = time.perf_counter()
+            transcription = await client.audio.transcriptions.create(
+                model=model,
+                file=audio_file,
+                response_format="text"
+            )
+            request_time_ms = (time.perf_counter() - request_start) * 1000
+
+            text = transcription.strip() if isinstance(transcription, str) else transcription.text.strip()
+
+            # Build metrics dict
+            is_local = is_local_provider(base_url)
+            metrics = {
+                "file_size_bytes": file_size_bytes,
+                "request_time_ms": round(request_time_ms, 1),
+                "is_local": is_local,
+            }
+
+            if text:
+                logger.info(f"✓ STT succeeded with {provider_type} at {base_url}")
+                logger.info(f"  Transcribed: {text[:100]}{'...' if len(text) > 100 else ''}")
+                logger.info(f"  Request time: {request_time_ms:.0f}ms, File size: {file_size_bytes/1024:.1f}KB")
+                # Return both text and provider info for display, plus metrics
+                return {"text": text, "provider": provider_type, "endpoint": base_url, "metrics": metrics}
+            else:
+                # Successful connection but no speech detected
+                logger.warning(f"STT returned empty result from {base_url} ({provider_type})")
+                successful_but_empty = True
+                successful_provider = provider_type
+                # Store metrics for potential no_speech return
+                successful_metrics = metrics
+
+        except Exception as e:
+            error_str = str(e)
+            provider_type = detect_provider_type(base_url)
+
+            # Parse OpenAI errors for better user feedback
+            error_details = None
+            if provider_type == "openai":
+                full_endpoint = f"{base_url}/audio/transcriptions" if not base_url.endswith("/v1") else f"{base_url}/audio/transcriptions"
+                error_details = OpenAIErrorParser.parse_error(e, endpoint=full_endpoint)
+                # Log the user-friendly error message
+                if error_details.get('title'):
+                    logger.error(f"  {error_details['title']}: {error_details.get('message', '')}")
+                    if error_details.get('suggestion'):
+                        logger.info(f"  💡 {error_details['suggestion']}")
+
+            # Track connection/auth errors
+            full_endpoint = f"{base_url}/audio/transcriptions" if not base_url.endswith("/v1") else f"{base_url}/audio/transcriptions"
+            connection_errors.append({
+                "endpoint": full_endpoint,
+                "provider": provider_type,
+                "error": error_str,
+                "error_details": error_details  # Include parsed error details
+            })
+
+            # Log failure with appropriate level based on whether we have fallbacks
+            if i < len(STT_BASE_URLS) - 1:
+                logger.warning(f"STT failed for {base_url} ({provider_type}): {e}")
+                logger.info("  Will try next endpoint...")
+            else:
+                logger.error(f"STT failed for final endpoint {base_url} ({provider_type}): {e}")
+
+            # Continue to next endpoint
+            continue
+
+    # Determine what to return based on results
+    if successful_but_empty:
+        # At least one endpoint connected successfully but returned no speech
+        logger.info("STT: No speech detected (successful connection)")
+        result = {"error_type": "no_speech", "provider": successful_provider}
+        # Include metrics if we captured them
+        if 'successful_metrics' in locals():
+            result["metrics"] = successful_metrics
+        return result
+    elif connection_errors:
+        # All endpoints failed with connection/auth errors
+        logger.error(f"✗ All STT endpoints failed after {len(STT_BASE_URLS)} attempts")
+        return {"error_type": "connection_failed", "attempted_endpoints": connection_errors}
+    else:
+        # Should not reach here, but handle it gracefully
+        logger.error("STT: Unexpected state - no successful connections and no errors tracked")
+        return None
